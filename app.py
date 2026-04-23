@@ -7,53 +7,133 @@ from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 
-# Load API key
+from langgraph.graph import StateGraph, END
+from typing import TypedDict
+
+# -------------------------------
+# 🔐 Load API Key
+# -------------------------------
 groq_api_key = os.getenv("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")
 
+# -------------------------------
+# 🖥️ UI Setup
+# -------------------------------
 st.set_page_config(page_title="AI Support Bot")
 st.title("💬 AI Customer Support Assistant")
 
-# Upload files
+# -------------------------------
+# 📄 File Upload
+# -------------------------------
 uploaded_files = st.file_uploader(
-    "Upload TXT or PDF files",
-    type=["txt", "pdf"],
+    "Upload PDF or TXT files",
+    type=["pdf", "txt"],
     accept_multiple_files=True
 )
 
-# Initialize models
+# -------------------------------
+# 🧠 Initialize Models
+# -------------------------------
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
 llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
-    temperature=0
+    temperature=0,
+    api_key=groq_api_key
 )
 
-# Session memory
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# -------------------------------
+# 🧠 Graph State Definition
+# -------------------------------
+class State(TypedDict):
+    question: str
+    context: str
+    answer: str
+    confidence: float
 
-if "history" not in st.session_state:
-    st.session_state.history = []
 
-# Process files
+# -------------------------------
+# 🔍 Node 1: Retrieve
+# -------------------------------
+def retrieve(state):
+    docs = retriever.invoke(state["question"])
+    context = "\n".join([doc.page_content for doc in docs])
+    return {"context": context}
+
+
+# -------------------------------
+# 🤖 Node 2: Generate Answer
+# -------------------------------
+def generate(state):
+    prompt = f"""
+    You are a professional customer support assistant.
+
+    Use ONLY the context below to answer.
+    If you don't know, say "I don't know".
+
+    Context:
+    {state['context']}
+
+    Question: {state['question']}
+
+    Also provide confidence between 0 and 1.
+    """
+
+    response = llm.invoke(prompt).content
+
+    # Simple confidence logic (basic version)
+    confidence = 0.8
+    if "don't know" in response.lower():
+        confidence = 0.3
+
+    return {
+        "answer": response,
+        "confidence": confidence
+    }
+
+
+# -------------------------------
+# 🚨 Node 3: Decision (HITL)
+# -------------------------------
+def decision(state):
+    if state["confidence"] < 0.6:
+        return "human"
+    return "end"
+
+
+# -------------------------------
+# 👤 Node 4: Human Escalation
+# -------------------------------
+def human_node(state):
+    return {
+        "answer": "⚠️ I'm not confident about this. Escalating to human support."
+    }
+
+
+# -------------------------------
+# 📄 Process Uploaded Files
+# -------------------------------
 if uploaded_files:
     all_docs = []
 
     for file in uploaded_files:
-        path = f"temp_{file.name}"
-        with open(path, "wb") as f:
+        file_path = f"temp_{file.name}"
+
+        with open(file_path, "wb") as f:
             f.write(file.read())
 
         if file.name.endswith(".txt"):
-            loader = TextLoader(path, encoding="utf-8")
+            loader = TextLoader(file_path, encoding="utf-8")
         else:
-            loader = PyPDFLoader(path)
+            loader = PyPDFLoader(file_path)
 
         docs = loader.load()
         all_docs.extend(docs)
 
+    # -------------------------------
+    # ✂️ Chunking
+    # -------------------------------
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
         chunk_overlap=100
@@ -61,47 +141,42 @@ if uploaded_files:
 
     chunks = splitter.split_documents(all_docs)
 
+    # -------------------------------
+    # 🗄️ Vector DB
+    # -------------------------------
     db = FAISS.from_documents(chunks, embeddings)
     retriever = db.as_retriever(search_kwargs={"k": 3})
 
-    # Improved RAG
-    def rag_chat(query):
-        docs = retriever.invoke(query)
-        context = "\n".join([d.page_content for d in docs])
+    # -------------------------------
+    # 🔗 Build LangGraph
+    # -------------------------------
+    graph = StateGraph(State)
 
-        history = "\n".join(st.session_state.history[-5:])
+    graph.add_node("retrieve", retrieve)
+    graph.add_node("generate", generate)
+    graph.add_node("human", human_node)
 
-        prompt = f"""
-        You are a professional customer support assistant.
+    graph.set_entry_point("retrieve")
 
-        Use ONLY the context below.
-        If unsure, say "I don't know".
+    graph.add_edge("retrieve", "generate")
 
-        Context:
-        {context}
+    graph.add_conditional_edges(
+        "generate",
+        decision,
+        {
+            "human": "human",
+            "end": END
+        }
+    )
 
-        Previous conversation:
-        {history}
+    app_graph = graph.compile()
 
-        Question: {query}
+    # -------------------------------
+    # 💬 Chat UI
+    # -------------------------------
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-        Answer clearly and professionally.
-        Also give confidence score (0 to 1).
-        """
-
-        response = llm.invoke(prompt).content
-
-        # Parse confidence
-        confidence = 0.8
-        if "confidence" in response.lower():
-            try:
-                confidence = float(response.split()[-1])
-            except:
-                confidence = 0.5
-
-        return response, confidence
-
-    # Chat UI
     for msg in st.session_state.messages:
         st.chat_message(msg["role"]).write(msg["content"])
 
@@ -111,24 +186,14 @@ if uploaded_files:
         st.chat_message("user").write(user_input)
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        answer, confidence = rag_chat(user_input)
+        result = app_graph.invoke({
+            "question": user_input
+        })
 
-        # HITL fallback
-        if confidence < 0.5:
-            answer = "⚠️ I'm not confident. A human agent will assist you."
+        answer = result["answer"]
 
         st.chat_message("assistant").write(answer)
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
-        st.session_state.history.append(user_input)
-        st.session_state.history.append(answer)
-
-        # Feedback
-        col1, col2 = st.columns(2)
-        with col1:
-            st.button("👍 Helpful")
-        with col2:
-            st.button("👎 Not Helpful")
-
 else:
-    st.info("📄 Upload files to start chatting")
+    st.info("📄 Please upload documents to start")
