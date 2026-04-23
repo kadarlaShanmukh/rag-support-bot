@@ -11,18 +11,18 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict
 
 # -------------------------------
-# 🔐 Load API Key
+# Load API Key
 # -------------------------------
 groq_api_key = os.getenv("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")
 
 # -------------------------------
-# 🖥️ UI Setup
+#  UI Setup
 # -------------------------------
 st.set_page_config(page_title="AI Support Bot")
 st.title("💬 AI Customer Support Assistant")
 
 # -------------------------------
-# 📄 File Upload
+# File Upload
 # -------------------------------
 uploaded_files = st.file_uploader(
     "Upload PDF or TXT files",
@@ -31,7 +31,7 @@ uploaded_files = st.file_uploader(
 )
 
 # -------------------------------
-# 🧠 Initialize Models
+# Initialize Models
 # -------------------------------
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
@@ -44,7 +44,7 @@ llm = ChatGroq(
 )
 
 # -------------------------------
-# 🧠 Graph State Definition
+# Graph State Definition
 # -------------------------------
 class State(TypedDict):
     question: str
@@ -54,7 +54,7 @@ class State(TypedDict):
 
 
 # -------------------------------
-# 🔍 Node 1: Retrieve
+# Node 1: Retrieve
 # -------------------------------
 def retrieve(state):
     docs = retriever.invoke(state["question"])
@@ -63,7 +63,7 @@ def retrieve(state):
 
 
 # -------------------------------
-# 🤖 Node 2: Generate Answer
+# Node 2: Generate Answer
 # -------------------------------
 def generate(state):
     prompt = f"""
@@ -94,7 +94,7 @@ def generate(state):
 
 
 # -------------------------------
-# 🚨 Node 3: Decision (HITL)
+#  Node 3: Decision (HITL)
 # -------------------------------
 def decision(state):
     if state["confidence"] < 0.6:
@@ -103,7 +103,7 @@ def decision(state):
 
 
 # -------------------------------
-# 👤 Node 4: Human Escalation
+#  Node 4: Human Escalation
 # -------------------------------
 def human_node(state):
     return {
@@ -112,7 +112,7 @@ def human_node(state):
 
 
 # -------------------------------
-# 📄 Process Uploaded Files
+# process Uploaded Files
 # -------------------------------
 if uploaded_files:
     all_docs = []
@@ -132,7 +132,7 @@ if uploaded_files:
         all_docs.extend(docs)
 
     # -------------------------------
-    # ✂️ Chunking
+    #  Chunking
     # -------------------------------
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
@@ -142,13 +142,13 @@ if uploaded_files:
     chunks = splitter.split_documents(all_docs)
 
     # -------------------------------
-    # 🗄️ Vector DB
+    #  Vector DB
     # -------------------------------
     db = FAISS.from_documents(chunks, embeddings)
     retriever = db.as_retriever(search_kwargs={"k": 3})
 
     # -------------------------------
-    # 🔗 Build LangGraph
+    #  Build LangGraph
     # -------------------------------
     graph = StateGraph(State)
 
@@ -172,7 +172,7 @@ if uploaded_files:
     app_graph = graph.compile()
 
     # -------------------------------
-    # 💬 Chat UI
+    # Chat UI
     # -------------------------------
     if "messages" not in st.session_state:
         st.session_state.messages = []
