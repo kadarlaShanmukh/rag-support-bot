@@ -8,7 +8,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 
 # Load API key
-groq_api_key = os.getenv("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")
+groq_api_key = os.getenv("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")
 
 st.set_page_config(page_title="AI Support Bot")
 st.title("💬 AI Customer Support Assistant")
