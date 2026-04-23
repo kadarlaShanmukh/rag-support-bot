@@ -107,7 +107,7 @@ def decision(state):
 # -------------------------------
 def human_node(state):
     return {
-        "answer": "⚠️ I'm not confident about this. Escalating to human support."
+        "answer": " I'm not confident about this. Escalating to human support."
     }
 
 
